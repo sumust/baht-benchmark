@@ -1,0 +1,29 @@
+# Overcooked BAHT benchmark config
+# Note: Only 2 agents — 1 Byzantine = fully adversarial (edge case)
+env: gymma
+env_args:
+  key: "overcooked:overcooked-cramped_room-v0"
+  time_limit: 400
+
+n_agents: 2
+n_actions: 6
+episode_limit: 400
+
+runner: "byzantine"
+mac: "open_train_mac"
+
+batch_size_run: 2
+batch_size: 16
+buffer_size: 16
+t_max: 1000000
+
+byzantine_budget: 1
+byzantine_type: "random"
+
+hidden_dim: 64
+use_cuda: True
+use_tensorboard: True
+
+# DR noise calibration
+obs_noise_std: 0.02
+action_noise_eps: 0.05

@@ -1,0 +1,28 @@
+# Level-Based Foraging BAHT benchmark config
+env: gymma
+env_args:
+  key: "lbforaging:Foraging-8x8-3p-2f-coop-v3"
+  time_limit: 50
+
+n_agents: 3
+n_actions: 6
+episode_limit: 50
+
+runner: "byzantine"
+mac: "open_train_mac"
+
+batch_size_run: 4
+batch_size: 32
+buffer_size: 32
+t_max: 250000
+
+byzantine_budget: 1
+byzantine_type: "random"
+
+hidden_dim: 64
+use_cuda: True
+use_tensorboard: True
+
+# DR noise calibration
+obs_noise_std: 0.03
+action_noise_eps: 0.08

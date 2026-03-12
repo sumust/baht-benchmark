@@ -1,0 +1,32 @@
+# SMAC 3s5z BAHT benchmark config
+# 8 agents (3 stalkers + 5 zealots) — large team, multiple Byzantines
+env: sc2
+env_args:
+  map_name: "3s5z"
+  difficulty: "7"
+  reward_only_positive: True
+  reward_scale: True
+  reward_scale_rate: 20
+
+n_agents: 8
+n_actions: 14
+episode_limit: 150
+
+runner: "byzantine"
+mac: "open_train_mac"
+
+batch_size_run: 1
+batch_size: 32
+buffer_size: 32
+t_max: 2000000
+
+byzantine_budget: 2
+byzantine_type: "random"
+
+hidden_dim: 64
+use_cuda: True
+use_tensorboard: True
+
+# DR noise calibration
+obs_noise_std: 0.02
+action_noise_eps: 0.05

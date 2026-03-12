@@ -1,0 +1,30 @@
+# Advisor Trust BAHT benchmark config
+env: advisor_trust
+env_args:
+  n_advisors: 4
+  byzantine_ratio: 0.5
+  adversarial_mode: "opposite"
+  episode_length: 20
+
+n_agents: 5
+n_actions: 2
+episode_limit: 20
+
+runner: "byzantine"
+mac: "open_train_mac"
+
+batch_size_run: 8
+batch_size: 64
+buffer_size: 256
+t_max: 50000
+
+byzantine_budget: 2
+byzantine_type: "random"
+
+hidden_dim: 16
+use_cuda: True
+use_tensorboard: True
+
+# DR noise calibration
+obs_noise_std: 0.01
+action_noise_eps: 0.05

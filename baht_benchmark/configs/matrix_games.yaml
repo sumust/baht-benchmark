@@ -1,0 +1,24 @@
+# Matrix Games BAHT benchmark config
+env: gymma
+env_args:
+  key: "matrixgames:pdilemma-nostate-v0"
+  time_limit: 1
+
+n_agents: 2
+n_actions: 2
+episode_limit: 1
+
+runner: "byzantine"
+mac: "open_train_mac"
+
+batch_size_run: 8
+batch_size: 64
+buffer_size: 64
+t_max: 50000
+
+byzantine_budget: 1
+byzantine_type: "random"
+
+hidden_dim: 16
+use_cuda: True
+use_tensorboard: True

@@ -1,0 +1,30 @@
+# DSSE (Drone Swarm Search) BAHT benchmark config
+env: dsse
+env_args:
+  grid_size: 15
+  n_drones: 4
+  n_targets: 2
+  timestep_limit: 100
+
+n_agents: 4
+n_actions: 9
+episode_limit: 100
+
+runner: "byzantine"
+mac: "open_train_mac"
+
+batch_size_run: 4
+batch_size: 32
+buffer_size: 32
+t_max: 500000
+
+byzantine_budget: 1
+byzantine_type: "random"
+
+hidden_dim: 64
+use_cuda: True
+use_tensorboard: True
+
+# DR noise calibration
+obs_noise_std: 0.02
+action_noise_eps: 0.05
