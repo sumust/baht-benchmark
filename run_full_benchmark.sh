@@ -173,20 +173,36 @@ GPU_IDX=0
 UNCNTRL_ARGS=$($PY -c "
 import json, sys
 manifest = json.load(open('$POPULATION_DIR/manifest.json'))
-n_agents = manifest['n_agents']
+# Get n_agents from manifest or env config
+n_agents = manifest.get('n_agents', None)
+if n_agents is None:
+    # Fall back to env registry
+    try:
+        from baht_benchmark import get_env_config
+        n_agents = get_env_config('$ENV').n_agents
+    except:
+        n_agents = 4  # safe default for MPE-PP
 parts = []
 for i, p in enumerate(manifest['policies']):
     name = f'agent_{i}'
+    path = p.get('path', '')
     parts.append(f'uncntrl_agents.{name}.agent_loader=rnn_eval_agent_loader')
-    parts.append(f'uncntrl_agents.{name}.agent_path={p[\"path\"]}')
+    parts.append(f'uncntrl_agents.{name}.agent_path={path}')
     parts.append(f'uncntrl_agents.{name}.load_step=best')
     parts.append(f'uncntrl_agents.{name}.n_agents_to_populate={n_agents - 1}')
     parts.append(f'uncntrl_agents.{name}.test_mode=True')
 print(' '.join(parts))
-" 2>/dev/null) || {
+" 2>&1) || {
     log "ERROR: Failed to parse manifest.json"
+    log "  Contents:"
+    cat "$POPULATION_DIR/manifest.json" 2>/dev/null | head -20 | while read -r line; do log "    $line"; done
     exit 1
 }
+
+if [ -z "$UNCNTRL_ARGS" ]; then
+    log "ERROR: manifest.json has no policies"
+    exit 1
+fi
 
 log "  Teammate population: $N_POLICIES policies loaded from manifest"
 
