@@ -49,7 +49,7 @@ find_shapley() {
         echo "$(cd "$sister" && pwd)"; return
     fi
     # Common locations
-    for d in "$HOME/Downloads/shapley-aht" "$HOME/shapley-aht" "$HOME/code/shapley-aht"; do
+    for d in "$HOME/Downloads/shapley-aht" "$HOME/workspace/lain/shapley-aht" "$HOME/shapley-aht" "$HOME/code/shapley-aht" "/workspace/lain/shapley-aht"; do
         if [ -f "$d/src/main.py" ]; then
             echo "$d"; return
         fi
