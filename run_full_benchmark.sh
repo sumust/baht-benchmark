@@ -3,21 +3,16 @@
 # BAHT Benchmark: Pre-train + Train + Analyze
 # ═══════════════════════════════════════════════════════════════════════
 #
-# ONE SCRIPT to run the entire BAHT benchmark pipeline:
-#   Phase 1: Pre-train diverse teammate populations
-#   Phase 2: Train ego agents (Shapley / POAM / IPPO) against diverse
-#            teammates with Byzantine injection
-#   Phase 3: Analyze results
+# ONE SCRIPT to run the entire BAHT benchmark pipeline.
+#
+# Repo layout (sister repos):
+#   ~/Downloads/baht-benchmark/    ← this repo (benchmark suite)
+#   ~/Downloads/shapley-aht/       ← training codebase
 #
 # Usage:
-#   # Standard benchmark on MPE-PP (2 GPUs, ~6 hours total)
-#   ./run_full_benchmark.sh
-#
-#   # Custom: specific env, protocol, GPUs
-#   ENV=dsse PROTOCOL=minimal GPUS=1 SEEDS=2 ./run_full_benchmark.sh
-#
-#   # On lovelace (2 GPUs, wandb logging)
+#   ./run_full_benchmark.sh                              # defaults
 #   ENV=mpe-pp GPUS=2 USE_WANDB=1 ./run_full_benchmark.sh
+#   PROTOCOL=minimal SEEDS=2 T_MAX=50000 ./run_full_benchmark.sh
 #
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -42,41 +37,58 @@ WANDB_PROJECT="${WANDB_PROJECT:-baht-benchmark}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCHMARK_ROOT="$SCRIPT_DIR"
 
-# Find shapley-aht
-if [ -n "${SHAPLEY_AHT_ROOT:-}" ]; then
-    SHAPLEY_ROOT="$SHAPLEY_AHT_ROOT"
-elif [ -d "$SCRIPT_DIR/../shapley-aht/src/main.py" ]; then
-    SHAPLEY_ROOT="$(cd "$SCRIPT_DIR/../shapley-aht" && pwd)"
-elif [ -d "$HOME/Downloads/shapley-aht/src/main.py" ]; then
-    SHAPLEY_ROOT="$HOME/Downloads/shapley-aht"
-else
-    # Search common locations
+# Find shapley-aht as a sister repo
+find_shapley() {
+    # Explicit override
+    if [ -n "${SHAPLEY_AHT_ROOT:-}" ] && [ -f "$SHAPLEY_AHT_ROOT/src/main.py" ]; then
+        echo "$SHAPLEY_AHT_ROOT"; return
+    fi
+    # Sister repo (../shapley-aht relative to this script)
+    local sister="$SCRIPT_DIR/../shapley-aht"
+    if [ -f "$sister/src/main.py" ]; then
+        echo "$(cd "$sister" && pwd)"; return
+    fi
+    # Common locations
     for d in "$HOME/Downloads/shapley-aht" "$HOME/shapley-aht" "$HOME/code/shapley-aht"; do
         if [ -f "$d/src/main.py" ]; then
-            SHAPLEY_ROOT="$d"
-            break
+            echo "$d"; return
         fi
     done
-fi
+    return 1
+}
 
-if [ -z "${SHAPLEY_ROOT:-}" ] || [ ! -f "$SHAPLEY_ROOT/src/main.py" ]; then
-    echo "ERROR: Cannot find shapley-aht. Set SHAPLEY_AHT_ROOT=/path/to/shapley-aht"
+SHAPLEY_ROOT=$(find_shapley) || {
+    echo "ERROR: Cannot find shapley-aht."
+    echo "  Expected at: $SCRIPT_DIR/../shapley-aht/"
+    echo "  Or set: SHAPLEY_AHT_ROOT=/path/to/shapley-aht"
     exit 1
-fi
+}
 
-# Find Python
-if [ -n "${PYTHON_EXE:-}" ]; then
-    PY="$PYTHON_EXE"
-elif [ -f "$HOME/miniconda/envs/baht/bin/python" ]; then
-    PY="$HOME/miniconda/envs/baht/bin/python"
-elif [ -n "${CONDA_PREFIX:-}" ] && [ -f "$CONDA_PREFIX/bin/python" ]; then
-    PY="$CONDA_PREFIX/bin/python"
-elif [ -f "$SHAPLEY_ROOT/.venv/bin/python" ]; then
-    PY="$SHAPLEY_ROOT/.venv/bin/python"
-else
-    PY="$(which python3)"
-fi
+# Find Python (venv > conda > system)
+find_python() {
+    if [ -n "${PYTHON_EXE:-}" ] && [ -f "$PYTHON_EXE" ]; then
+        echo "$PYTHON_EXE"; return
+    fi
+    # venv inside shapley-aht
+    if [ -f "$SHAPLEY_ROOT/.venv/bin/python" ]; then
+        echo "$SHAPLEY_ROOT/.venv/bin/python"; return
+    fi
+    # conda env named "baht"
+    if [ -f "$HOME/miniconda/envs/baht/bin/python" ]; then
+        echo "$HOME/miniconda/envs/baht/bin/python"; return
+    fi
+    if [ -f "$HOME/miniconda3/envs/baht/bin/python" ]; then
+        echo "$HOME/miniconda3/envs/baht/bin/python"; return
+    fi
+    # Active conda env
+    if [ -n "${CONDA_PREFIX:-}" ] && [ -f "$CONDA_PREFIX/bin/python" ]; then
+        echo "$CONDA_PREFIX/bin/python"; return
+    fi
+    echo "$(which python3)"
+}
+PY=$(find_python)
 
+# PYTHONPATH: shapley-aht src + mpe + benchmark root (for baht_benchmark imports)
 export PYTHONPATH="$SHAPLEY_ROOT/src:$SHAPLEY_ROOT/3rdparty/mpe:$BENCHMARK_ROOT:${PYTHONPATH:-}"
 
 # ── Logging ───────────────────────────────────────────────────────────
@@ -95,12 +107,20 @@ log "  Protocol:       $PROTOCOL"
 log "  Methods:        $METHODS"
 log "  Byzantine:      $BYZ_TYPES"
 log "  Seeds:          $SEEDS"
-log "  t_max:          $T_MAX"
+log "  t_max:          $T_MAX  (pretrain: $PRETRAIN_T_MAX)"
 log "  GPUs:           $GPUS"
+log "  wandb:          $([ "$USE_WANDB" = "1" ] && echo "$WANDB_PROJECT" || echo "off")"
 log "  Shapley root:   $SHAPLEY_ROOT"
+log "  Benchmark root: $BENCHMARK_ROOT"
 log "  Python:         $PY"
 log "  Logs:           $LOG_DIR"
 log ""
+
+# Sanity check: can Python import baht_benchmark?
+$PY -c "from baht_benchmark import ENVIRONMENTS; print(f'  Benchmark loaded: {len(ENVIRONMENTS)} environments')" 2>&1 | tee -a "$LOG_DIR/pipeline.log" || {
+    log "ERROR: Cannot import baht_benchmark. Run: pip install -e $BENCHMARK_ROOT"
+    exit 1
+}
 
 # ═══════════════════════════════════════════════════════════════════════
 # PHASE 1: Pre-train diverse teammate population
@@ -109,7 +129,7 @@ log ""
 POPULATION_DIR="$SHAPLEY_ROOT/populations/$ENV"
 
 if [ -f "$POPULATION_DIR/manifest.json" ]; then
-    N_POLICIES=$(python3 -c "import json; print(json.load(open('$POPULATION_DIR/manifest.json'))['n_policies'])")
+    N_POLICIES=$($PY -c "import json; print(json.load(open('$POPULATION_DIR/manifest.json'))['n_policies'])")
     log "PHASE 1: SKIP — found existing population ($N_POLICIES policies)"
 else
     log "PHASE 1: Pre-training diverse teammates ($PROTOCOL protocol)"
@@ -125,10 +145,10 @@ else
         2>&1 | tee "$LOG_DIR/pretrain.log"
 
     if [ ! -f "$POPULATION_DIR/manifest.json" ]; then
-        log "ERROR: Pre-training failed — no manifest.json"
+        log "ERROR: Pre-training failed — no manifest.json created"
         exit 1
     fi
-    N_POLICIES=$(python3 -c "import json; print(json.load(open('$POPULATION_DIR/manifest.json'))['n_policies'])")
+    N_POLICIES=$($PY -c "import json; print(json.load(open('$POPULATION_DIR/manifest.json'))['n_policies'])")
     log "PHASE 1: Done — $N_POLICIES policies trained"
 fi
 
@@ -139,15 +159,43 @@ fi
 log ""
 log "PHASE 2: Training BAHT methods against diverse teammates"
 
-WANDB_FLAG=""
+WANDB_ARGS=""
 if [ "$USE_WANDB" = "1" ]; then
-    WANDB_FLAG="use_wandb=True wandb_project=$WANDB_PROJECT"
+    WANDB_ARGS="use_wandb=True wandb_project=$WANDB_PROJECT"
 fi
 
 RESULTS_DIR="$SHAPLEY_ROOT/results/baht_benchmark/$ENV/$TIMESTAMP"
 PIDS=()
 RUN_NAMES=()
 GPU_IDX=0
+
+# Generate uncntrl_agents Sacred args from manifest (once, shared by all runs)
+UNCNTRL_ARGS=$($PY -c "
+import json, sys
+manifest = json.load(open('$POPULATION_DIR/manifest.json'))
+n_agents = manifest['n_agents']
+parts = []
+for i, p in enumerate(manifest['policies']):
+    name = f'agent_{i}'
+    parts.append(f'uncntrl_agents.{name}.agent_loader=rnn_eval_agent_loader')
+    parts.append(f'uncntrl_agents.{name}.agent_path={p[\"path\"]}')
+    parts.append(f'uncntrl_agents.{name}.load_step=best')
+    parts.append(f'uncntrl_agents.{name}.n_agents_to_populate={n_agents - 1}')
+    parts.append(f'uncntrl_agents.{name}.test_mode=True')
+print(' '.join(parts))
+" 2>/dev/null) || {
+    log "ERROR: Failed to parse manifest.json"
+    exit 1
+}
+
+log "  Teammate population: $N_POLICIES policies loaded from manifest"
+
+# Determine default config based on environment
+case $ENV in
+    mpe-pp)       DEFAULT_CONFIG="default/default_mpe_pp_baht" ;;
+    matrix-games) DEFAULT_CONFIG="default/default_matrix_games" ;;
+    *)            DEFAULT_CONFIG="default/default_mpe_pp_baht" ;;
+esac
 
 for METHOD in $METHODS; do
     for BYZ in $BYZ_TYPES; do
@@ -164,27 +212,14 @@ for METHOD in $METHODS; do
                 shapley) ALG_CONFIG="mpe/shapley" ;;
                 poam)    ALG_CONFIG="mpe/poam_byz" ;;
                 ippo)    ALG_CONFIG="mpe/ippo" ;;
+                iql)     ALG_CONFIG="mpe/iql" ;;
+                qmix)    ALG_CONFIG="mpe/qmix" ;;
+                mappo)   ALG_CONFIG="mpe/mappo" ;;
                 *)       ALG_CONFIG="mpe/$METHOD" ;;
             esac
 
-            # Build Sacred args from manifest
-            UNCNTRL_ARGS=$($PY -c "
-import json
-manifest = json.load(open('$POPULATION_DIR/manifest.json'))
-# Build uncntrl_agents Sacred override
-parts = []
-for i, p in enumerate(manifest['policies']):
-    name = f'agent_{i}'
-    parts.append(f'uncntrl_agents.{name}.agent_loader=rnn_eval_agent_loader')
-    parts.append(f'uncntrl_agents.{name}.agent_path={p[\"path\"]}')
-    parts.append(f'uncntrl_agents.{name}.load_step=best')
-    parts.append(f'uncntrl_agents.{name}.n_agents_to_populate=${manifest[\"n_agents\"]- 1}')
-    parts.append(f'uncntrl_agents.{name}.test_mode=True')
-print(' '.join(parts))
-" 2>/dev/null || echo "")
-
             CUDA_VISIBLE_DEVICES=$GPU_ID $PY "$SHAPLEY_ROOT/src/main.py" \
-                --config="default/default_mpe_pp_baht" \
+                --config="$DEFAULT_CONFIG" \
                 --alg-config="$ALG_CONFIG" \
                 with \
                 seed=$SEED \
@@ -197,7 +232,7 @@ print(' '.join(parts))
                 save_model=True \
                 save_model_interval=$T_MAX \
                 $UNCNTRL_ARGS \
-                $WANDB_FLAG \
+                $WANDB_ARGS \
                 > "$LOG_DIR/${RUN_NAME}.log" 2>&1 &
 
             PIDS+=($!)
@@ -209,6 +244,9 @@ done
 N_RUNS=${#PIDS[@]}
 log ""
 log "  $N_RUNS runs launched. Waiting..."
+if [ "$USE_WANDB" = "1" ]; then
+    log "  Monitor: python -m baht_benchmark.monitor --project $WANDB_PROJECT --watch 60"
+fi
 
 # ── Wait and report ───────────────────────────────────────────────────
 
@@ -234,10 +272,9 @@ if [ $N_FAIL -gt 0 ]; then
     log ""
     log "Failed run logs:"
     for i in "${!PIDS[@]}"; do
-        # Check if process failed by looking at log for errors
         if grep -q "Traceback\|Error\|FAILED" "$LOG_DIR/${RUN_NAMES[$i]}.log" 2>/dev/null; then
             log "  $LOG_DIR/${RUN_NAMES[$i]}.log"
-            tail -5 "$LOG_DIR/${RUN_NAMES[$i]}.log" 2>/dev/null | while read line; do
+            tail -5 "$LOG_DIR/${RUN_NAMES[$i]}.log" 2>/dev/null | while read -r line; do
                 log "    $line"
             done
         fi
@@ -261,5 +298,5 @@ log "  Results: $RESULTS_DIR"
 log "  Logs:    $LOG_DIR"
 log "  Analyze: python -m baht_benchmark.analyze $RESULTS_DIR"
 if [ "$USE_WANDB" = "1" ]; then
-    log "  W&B:     https://wandb.ai/$WANDB_PROJECT"
+    log "  Monitor: python -m baht_benchmark.monitor --project $WANDB_PROJECT"
 fi
