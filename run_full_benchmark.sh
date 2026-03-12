@@ -141,7 +141,7 @@ log "PHASE 2: Training BAHT methods against diverse teammates"
 
 WANDB_FLAG=""
 if [ "$USE_WANDB" = "1" ]; then
-    WANDB_FLAG="--use_wandb --wandb_project $WANDB_PROJECT"
+    WANDB_FLAG="use_wandb=True wandb_project=$WANDB_PROJECT"
 fi
 
 RESULTS_DIR="$SHAPLEY_ROOT/results/baht_benchmark/$ENV/$TIMESTAMP"
