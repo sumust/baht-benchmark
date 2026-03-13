@@ -53,8 +53,12 @@ def load_sacred_results(results_dir: str) -> Dict[str, List[dict]]:
                    "byz_detection_f1", "byz_detection_accuracy", "contribution_loss"]:
             if m in info:
                 v = info[m]
-                if isinstance(v, dict):
-                    # Sacred stores time-indexed dicts; get last value
+                if isinstance(v, dict) and "values" in v:
+                    # Sacred FileStorageObserver format: {"values": [...], "steps": [...], "timestamps": [...]}
+                    vals = v["values"]
+                    metrics[m] = vals[-1] if vals else None
+                elif isinstance(v, dict):
+                    # Fallback for other dict formats
                     vals = [vv for vv in v.values() if isinstance(vv, (int, float))]
                     if vals:
                         metrics[m] = vals[-1]

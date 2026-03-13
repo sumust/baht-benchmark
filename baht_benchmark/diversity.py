@@ -222,7 +222,7 @@ class ByzantineType(Enum):
     """Byzantine behavior types, ordered by detection difficulty."""
     # Tier 1: Trivially detectable
     RANDOM = "random"       # Uniform random actions
-    FROZEN = "frozen"       # Always action 0
+    FROZEN = "freeze"       # Always action 0
 
     # Tier 2: Requires behavioral analysis
     FLIP = "flip"           # Inverted cooperative policy

@@ -18,6 +18,10 @@ from baht_benchmark.registry import ENVIRONMENTS, get_env_config, get_suite, Env
 
 
 METHODS = {
+    "cvc": {
+        "alg_config": "mpe/cvc",
+        "description": "CVC: counterfactual value contribution with trust gating",
+    },
     "shapley": {
         "alg_config": "mpe/shapley",
         "description": "Shapley-AHT: LOO contribution estimation",
@@ -82,6 +86,7 @@ def run_experiment(shapley_root: Path, env_config: EnvConfig, method: str,
                    seed: int, byz_type: str, gpu_id: int = 0,
                    t_max: int = None, use_wandb: bool = False,
                    wandb_project: str = "baht-benchmark",
+                   population_path: str = None,
                    extra_args: dict = None):
     """Launch a single experiment as a subprocess."""
     method_info = METHODS[method]
@@ -91,6 +96,7 @@ def run_experiment(shapley_root: Path, env_config: EnvConfig, method: str,
         f"seed={seed}",
         f"byzantine_type={byz_type}",
         f"byzantine_budget={env_config.recommended_byzantine_budget}",
+        "runner=byzantine",
     ]
 
     if t_max:
@@ -99,6 +105,23 @@ def run_experiment(shapley_root: Path, env_config: EnvConfig, method: str,
     if use_wandb:
         sacred_args.append("use_wandb=True")
         sacred_args.append(f"wandb_project={wandb_project}")
+
+    # Load population manifest and build uncntrl_agents args
+    if population_path:
+        manifest_file = os.path.join(population_path, "manifest.json")
+        if os.path.exists(manifest_file):
+            with open(manifest_file) as f:
+                manifest = json.load(f)
+            n_agents = manifest.get("n_agents", env_config.n_agents)
+            sacred_args.append("mac=open_train_mac")
+            for i, p in enumerate(manifest.get("policies", [])):
+                name = f"agent_{i}"
+                path = p.get("path", "")
+                sacred_args.append(f'uncntrl_agents.{name}.agent_loader="rnn_eval_agent_loader"')
+                sacred_args.append(f'uncntrl_agents.{name}.agent_path="{path}"')
+                sacred_args.append(f'uncntrl_agents.{name}.load_step="best"')
+                sacred_args.append(f"uncntrl_agents.{name}.n_agents_to_populate={n_agents - 1}")
+                sacred_args.append(f"uncntrl_agents.{name}.test_mode=True")
 
     if extra_args:
         for k, v in extra_args.items():

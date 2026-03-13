@@ -71,15 +71,15 @@ ALGO_CONFIGS: Dict[str, dict] = {
         "on_policy": True,
     },
     "maddpg": {
-        "alg_config": "maddpg",
+        "alg_config": "sc2/maddpg",
         "agent": "rnn",
         "learner": "maddpg_learner",
         "on_policy": False,
     },
     "pac": {
-        "alg_config": "pac",
+        "alg_config": "sc2/pac_ns",
         "agent": "rnn",
-        "learner": "actor_critic_pac_learner",
+        "learner": "pac_learner",
         "on_policy": True,
     },
     "poam": {
@@ -104,14 +104,16 @@ ENV_DEFAULTS: Dict[str, dict] = {
         "env_args_key": "mpe:SimpleTag-v0",
     },
     "dsse": {
-        "default_config": "default/default_dsse",
+        "default_config": "default/default_mpe_pp",
         "env_config": "gymma",
-        "env_args_key": None,
+        "env_args_key": "DSSE-v0",
+        "note": "Uses MPE-PP defaults; create default_dsse.yaml for env-specific settings",
     },
     "lbf": {
-        "default_config": "default/default_lbf",
+        "default_config": "default/default_mpe_pp",
         "env_config": "gymma",
-        "env_args_key": None,
+        "env_args_key": "lbforaging:Foraging-8x8-3p-2f-coop-v3",
+        "note": "Uses MPE-PP defaults; create default_lbf.yaml for env-specific settings",
     },
     "matrix-games": {
         "default_config": "default/default_matrix_games",
@@ -275,9 +277,14 @@ def build_manifest(pop_dir: Path, env_config: EnvConfig, t_max: int) -> dict:
 
         model_path = str(agent_file.parent.parent)  # Up to logname level
 
-        # Check for Sacred config
-        sacred_path = model_path.replace("models", "sacred") + "/1/config.json"
-        has_config = os.path.exists(sacred_path)
+        # Check for Sacred config — search for any run's config.json
+        sacred_dir = model_path.replace("models", "sacred")
+        has_config = False
+        if os.path.isdir(sacred_dir):
+            for run_dir in sorted(Path(sacred_dir).iterdir(), reverse=True):
+                if (run_dir / "config.json").exists():
+                    has_config = True
+                    break
 
         policies.append({
             "path": model_path,

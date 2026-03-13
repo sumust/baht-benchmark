@@ -22,8 +22,8 @@ set -euo pipefail
 
 ENV="${ENV:-mpe-pp}"
 PROTOCOL="${PROTOCOL:-standard}"       # minimal | standard | extended
-METHODS="${METHODS:-shapley poam ippo}"
-BYZ_TYPES="${BYZ_TYPES:-random frozen flip}"
+METHODS="${METHODS:-cvc poam ippo}"
+BYZ_TYPES="${BYZ_TYPES:-random freeze flip}"
 SEEDS="${SEEDS:-3}"
 T_MAX="${T_MAX:-250000}"
 PRETRAIN_T_MAX="${PRETRAIN_T_MAX:-200000}"
@@ -186,9 +186,9 @@ parts = []
 for i, p in enumerate(manifest['policies']):
     name = f'agent_{i}'
     path = p.get('path', '')
-    parts.append(f'uncntrl_agents.{name}.agent_loader=rnn_eval_agent_loader')
-    parts.append(f'uncntrl_agents.{name}.agent_path={path}')
-    parts.append(f'uncntrl_agents.{name}.load_step=best')
+    parts.append(f'uncntrl_agents.{name}.agent_loader=\"rnn_eval_agent_loader\"')
+    parts.append(f'uncntrl_agents.{name}.agent_path=\"{path}\"')
+    parts.append(f'uncntrl_agents.{name}.load_step=\"best\"')
     parts.append(f'uncntrl_agents.{name}.n_agents_to_populate={n_agents - 1}')
     parts.append(f'uncntrl_agents.{name}.test_mode=True')
 print(' '.join(parts))
@@ -225,6 +225,7 @@ for METHOD in $METHODS; do
 
             # Determine alg config
             case $METHOD in
+                cvc)     ALG_CONFIG="mpe/cvc" ;;
                 shapley) ALG_CONFIG="mpe/shapley" ;;
                 poam)    ALG_CONFIG="mpe/poam_byz" ;;
                 ippo)    ALG_CONFIG="mpe/ippo" ;;
