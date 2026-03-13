@@ -219,20 +219,27 @@ class TeammatePopulationSpec:
 # ═══════════════════════════════════════════════════════════════════════
 
 class ByzantineType(Enum):
-    """Byzantine behavior types, ordered by detection difficulty."""
-    # Tier 1: Trivially detectable
+    """Byzantine behavior types, ordered by detection difficulty.
+
+    Implemented types (in ByzantineRunner):
+        random, freeze, flip, offset
+
+    Not yet implemented (require trained adversary policies):
+        adversary, mixed, stealth, stealth_independent
+    """
+    # Tier 1: Trivially detectable (implemented)
     RANDOM = "random"       # Uniform random actions
     FROZEN = "freeze"       # Always action 0
 
-    # Tier 2: Requires behavioral analysis
+    # Tier 2: Requires behavioral analysis (implemented)
     FLIP = "flip"           # Inverted cooperative policy
     OFFSET = "offset"       # Action = (cooperative_action + k) % n_actions
 
-    # Tier 3: Requires learned detection
+    # Tier 3: Requires learned detection (NOT YET IMPLEMENTED)
     ADVERSARY = "adversary"     # Reward-minimizing (trained policy)
     MIXED = "mixed"             # 50% adversary, 50% random
 
-    # Tier 4: Detection-aware (hardest)
+    # Tier 4: Detection-aware (NOT YET IMPLEMENTED)
     STEALTH = "stealth"                   # Adversarial + evasive (trained)
     STEALTH_INDEPENDENT = "stealth_independent"  # Heuristic stealth (env-specific)
 
@@ -278,29 +285,31 @@ class ByzantineSpec:
 
     @staticmethod
     def hard() -> "ByzantineSpec":
-        """Hard: includes learned adversaries."""
+        """Hard: all implemented types with higher budget."""
         return ByzantineSpec(
-            types=[ByzantineType.RANDOM, ByzantineType.FLIP,
-                   ByzantineType.ADVERSARY, ByzantineType.MIXED],
+            types=[ByzantineType.RANDOM, ByzantineType.FROZEN,
+                   ByzantineType.FLIP, ByzantineType.OFFSET],
             budget_min=1, budget_max=2,
             type_mixing=True,
         )
 
     @staticmethod
     def adversarial() -> "ByzantineSpec":
-        """Adversarial: detection-aware Byzantines."""
-        return ByzantineSpec(
-            types=[ByzantineType.ADVERSARY, ByzantineType.STEALTH,
-                   ByzantineType.STEALTH_INDEPENDENT],
-            budget_min=1, budget_max=2,
-            type_mixing=True,
-        )
+        """Adversarial: detection-aware Byzantines.
+
+        NOTE: Requires trained adversary policies. Currently falls back
+        to the hard preset since adversary/stealth types are not yet
+        implemented in ByzantineRunner.
+        """
+        # TODO: enable once adversary types are implemented
+        return ByzantineSpec.hard()
 
     @staticmethod
     def full() -> "ByzantineSpec":
-        """Full spectrum: all types, variable budget."""
+        """Full spectrum of implemented types, variable budget."""
         return ByzantineSpec(
-            types=list(ByzantineType),
+            types=[ByzantineType.RANDOM, ByzantineType.FROZEN,
+                   ByzantineType.FLIP, ByzantineType.OFFSET],
             budget_min=0, budget_max=2,
             type_mixing=True,
         )

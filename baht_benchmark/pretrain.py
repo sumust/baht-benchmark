@@ -222,6 +222,21 @@ def pretrain_single(
     elif architecture == "rnn_norm_ns":
         cmd.append("agent=rnn_norm_ns")
 
+    # Hyperparameter variation (produces behaviorally distinct policies)
+    if algo_cfg.get("on_policy", True):
+        # Entropy and LR variation for on-policy methods
+        if seed % 3 == 1:
+            cmd.append("entropy_coef=0.02")   # Higher exploration
+        elif seed % 3 == 2:
+            cmd.append("entropy_coef=0.005")  # Lower exploration
+        # LR variation
+        if seed % 2 == 1:
+            cmd.append("lr=0.0003")           # Slightly lower LR
+    else:
+        # Epsilon and LR variation for off-policy methods
+        if seed % 2 == 1:
+            cmd.append("lr=0.0003")
+
     # Environment-specific args
     if env_defaults.get("env_args_key"):
         cmd.append(f"env_args.key={env_defaults['env_args_key']}")
@@ -275,7 +290,12 @@ def build_manifest(pop_dir: Path, env_config: EnvConfig, t_max: int) -> dict:
         else:
             continue
 
-        model_path = str(agent_file.parent.parent)  # Up to logname level
+        # Store path relative to population directory for portability.
+        # At load time, base_uncntrl_path is prepended.
+        try:
+            model_path = str(agent_file.parent.parent.relative_to(pop_dir))
+        except ValueError:
+            model_path = str(agent_file.parent.parent)  # Fallback to absolute
 
         # Check for Sacred config — search for any run's config.json
         sacred_dir = model_path.replace("models", "sacred")
@@ -286,9 +306,19 @@ def build_manifest(pop_dir: Path, env_config: EnvConfig, t_max: int) -> dict:
                     has_config = True
                     break
 
+        # Determine the correct agent loader for this algorithm
+        algo_info = ALGO_CONFIGS.get(algorithm, {})
+        agent_type = algo_info.get("agent", "rnn")
+        if agent_type in ("rnn_poam", "rnn_shapley", "rnn_cvc"):
+            loader = "poam_eval_agent_loader"
+        else:
+            loader = "rnn_eval_agent_loader"
+
         policies.append({
             "path": model_path,
             "algorithm": algorithm,
+            "agent_type": agent_type,
+            "agent_loader": loader,
             "seed": seed,
             "skill_level": skill_level,
             "training_steps": step,

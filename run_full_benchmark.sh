@@ -176,7 +176,6 @@ manifest = json.load(open('$POPULATION_DIR/manifest.json'))
 # Get n_agents from manifest or env config
 n_agents = manifest.get('n_agents', None)
 if n_agents is None:
-    # Fall back to env registry
     try:
         from baht_benchmark import get_env_config
         n_agents = get_env_config('$ENV').n_agents
@@ -186,7 +185,12 @@ parts = []
 for i, p in enumerate(manifest['policies']):
     name = f'agent_{i}'
     path = p.get('path', '')
-    parts.append(f'uncntrl_agents.{name}.agent_loader=\"rnn_eval_agent_loader\"')
+    # Use the correct loader per policy's algorithm
+    loader = p.get('agent_loader', 'rnn_eval_agent_loader')
+    agent_type = p.get('agent_type', 'rnn')
+    if agent_type in ('rnn_poam', 'rnn_shapley', 'rnn_cvc'):
+        loader = 'poam_eval_agent_loader'
+    parts.append(f'uncntrl_agents.{name}.agent_loader=\"{loader}\"')
     parts.append(f'uncntrl_agents.{name}.agent_path=\"{path}\"')
     parts.append(f'uncntrl_agents.{name}.load_step=\"best\"')
     parts.append(f'uncntrl_agents.{name}.n_agents_to_populate={n_agents - 1}')

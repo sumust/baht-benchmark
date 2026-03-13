@@ -1,7 +1,7 @@
 """CLI entry point for the BAHT benchmark suite.
 
 Usage:
-    python -m baht_benchmark.run --env mpe-pp --method shapley --seeds 3 --t_max 250000
+    python -m baht_benchmark.run --env mpe-pp --method cvc --seeds 3 --t_max 250000
     python -m baht_benchmark.run --suite core --method all --seeds 5
     python -m baht_benchmark.run --list-envs
 """
@@ -12,34 +12,66 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from baht_benchmark.registry import ENVIRONMENTS, get_env_config, get_suite, EnvConfig
 
 
+# Method → (default_config, alg_config) mapping.
+# The default_config is the --config arg (env defaults), alg_config is --alg-config.
 METHODS = {
     "cvc": {
+        "default_config": "default/default_mpe_pp_byz",
         "alg_config": "mpe/cvc",
         "description": "CVC: counterfactual value contribution with trust gating",
     },
     "shapley": {
+        "default_config": "default/default_mpe_pp_byz",
         "alg_config": "mpe/shapley",
         "description": "Shapley-AHT: LOO contribution estimation",
     },
     "poam": {
+        "default_config": "default/default_mpe_pp_byz",
         "alg_config": "mpe/poam_byz",
         "description": "POAM baseline: no contribution estimation",
     },
     "ippo": {
+        "default_config": "default/default_mpe_pp_byz",
         "alg_config": "mpe/ippo",
         "description": "IPPO baseline: no teammate modeling",
     },
 }
 
+# Environment-specific default configs (override the method defaults)
+ENV_DEFAULT_CONFIGS = {
+    "mpe-pp": "default/default_mpe_pp_byz",
+    "dsse": "default/default_mpe_pp_byz",   # TODO: create default_dsse_byz.yaml
+    "lbf": "default/default_mpe_pp_byz",     # TODO: create default_lbf_byz.yaml
+}
+
+# Map algorithm → agent loader to use for populations
+AGENT_LOADERS = {
+    "iql": "rnn_eval_agent_loader",
+    "qmix": "rnn_eval_agent_loader",
+    "vdn": "rnn_eval_agent_loader",
+    "ippo": "rnn_eval_agent_loader",
+    "mappo": "rnn_eval_agent_loader",
+    "maddpg": "rnn_eval_agent_loader",
+    "pac": "rnn_eval_agent_loader",
+    "poam": "poam_eval_agent_loader",
+    "shapley": "poam_eval_agent_loader",   # shapley agents have encoder
+    "cvc": "poam_eval_agent_loader",       # cvc agents have encoder
+}
+
 
 def find_shapley_aht_root() -> Path:
     """Find the shapley-aht codebase root."""
-    # Check common locations
+    # Explicit env var
+    if "SHAPLEY_AHT_ROOT" in os.environ:
+        p = Path(os.environ["SHAPLEY_AHT_ROOT"])
+        if (p / "src" / "main.py").exists():
+            return p
+
     candidates = [
         Path(__file__).parent.parent.parent / "shapley-aht",
         Path.home() / "Downloads" / "shapley-aht",
@@ -54,48 +86,27 @@ def find_shapley_aht_root() -> Path:
     )
 
 
-def generate_config(env_config: EnvConfig, method: str, seed: int,
-                    byz_type: str = "random", byz_budget: int = None,
-                    output_dir: str = None) -> dict:
-    """Generate a run config dict for shapley-aht's main.py."""
-    byz_budget = byz_budget or env_config.recommended_byzantine_budget
-
-    config = {
-        "env": env_config.env_key,
-        "env_args": env_config.env_kwargs.copy(),
-        "n_agents": env_config.n_agents,
-        "n_actions": env_config.n_actions,
-        "episode_limit": env_config.episode_limit,
-        "t_max": env_config.default_t_max,
-        "batch_size": env_config.default_batch_size,
-        "buffer_size": env_config.default_buffer_size,
-        "batch_size_run": env_config.default_batch_size_run,
-        "hidden_dim": env_config.default_hidden_dim,
-        "seed": seed,
-        "byzantine_budget": byz_budget,
-        "byzantine_type": byz_type,
-        "runner": "byzantine",
-        "mac": "open_train_mac",
-        "use_cuda": True,
-        "use_tensorboard": True,
-    }
-    return config
-
-
 def run_experiment(shapley_root: Path, env_config: EnvConfig, method: str,
                    seed: int, byz_type: str, gpu_id: int = 0,
-                   t_max: int = None, use_wandb: bool = False,
+                   t_max: int = None, byz_budget: int = None,
+                   use_wandb: bool = False,
                    wandb_project: str = "baht-benchmark",
                    population_path: str = None,
+                   log_dir: str = None,
                    extra_args: dict = None):
     """Launch a single experiment as a subprocess."""
     method_info = METHODS[method]
     alg_config = method_info["alg_config"]
 
+    # Use env-specific or method default config
+    default_config = ENV_DEFAULT_CONFIGS.get(env_config.name, method_info["default_config"])
+
+    byz_budget = byz_budget or env_config.recommended_byzantine_budget
+
     sacred_args = [
         f"seed={seed}",
         f"byzantine_type={byz_type}",
-        f"byzantine_budget={env_config.recommended_byzantine_budget}",
+        f"byzantine_budget={byz_budget}",
         "runner=byzantine",
     ]
 
@@ -117,7 +128,10 @@ def run_experiment(shapley_root: Path, env_config: EnvConfig, method: str,
             for i, p in enumerate(manifest.get("policies", [])):
                 name = f"agent_{i}"
                 path = p.get("path", "")
-                sacred_args.append(f'uncntrl_agents.{name}.agent_loader="rnn_eval_agent_loader"')
+                # Use the correct loader for the policy's algorithm
+                algo = p.get("algorithm", "ippo")
+                loader = AGENT_LOADERS.get(algo, "rnn_eval_agent_loader")
+                sacred_args.append(f'uncntrl_agents.{name}.agent_loader="{loader}"')
                 sacred_args.append(f'uncntrl_agents.{name}.agent_path="{path}"')
                 sacred_args.append(f'uncntrl_agents.{name}.load_step="best"')
                 sacred_args.append(f"uncntrl_agents.{name}.n_agents_to_populate={n_agents - 1}")
@@ -127,9 +141,11 @@ def run_experiment(shapley_root: Path, env_config: EnvConfig, method: str,
         for k, v in extra_args.items():
             sacred_args.append(f"{k}={v}")
 
+    # Build command with proper --config (default) + --alg-config (algorithm)
     cmd = [
         sys.executable, str(shapley_root / "src" / "main.py"),
-        f"--config={alg_config}",
+        f"--config={default_config}",
+        f"--alg-config={alg_config}",
         "with",
     ] + sacred_args
 
@@ -141,13 +157,23 @@ def run_experiment(shapley_root: Path, env_config: EnvConfig, method: str,
     print(f"  Launching: {run_name}")
     print(f"    CMD: {' '.join(cmd)}")
 
-    return subprocess.Popen(
+    # Write stdout/stderr to log files to avoid pipe deadlock
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+        stdout_fh = open(os.path.join(log_dir, f"{run_name}.log"), "w")
+        stderr_fh = subprocess.STDOUT  # merge stderr into stdout
+    else:
+        stdout_fh = subprocess.DEVNULL
+        stderr_fh = subprocess.DEVNULL
+
+    proc = subprocess.Popen(
         cmd,
         env=env,
         cwd=str(shapley_root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    ), run_name
+        stdout=stdout_fh,
+        stderr=stderr_fh,
+    )
+    return proc, run_name
 
 
 def list_envs():
@@ -173,7 +199,7 @@ def main():
     parser = argparse.ArgumentParser(description="BAHT Benchmark Suite")
     parser.add_argument("--env", type=str, help="Environment name (e.g., mpe-pp, dsse)")
     parser.add_argument("--suite", type=str, help="Run a suite: core, extended, all, quick, standard")
-    parser.add_argument("--method", type=str, default="all", help="Method: shapley, poam, ippo, all")
+    parser.add_argument("--method", type=str, default="all", help="Method: cvc, shapley, poam, ippo, all")
     parser.add_argument("--seeds", type=int, default=3, help="Number of seeds")
     parser.add_argument("--t_max", type=int, default=None, help="Override training steps")
     parser.add_argument("--byz_type", type=str, default="random", help="Byzantine type")
@@ -183,6 +209,10 @@ def main():
     parser.add_argument("--wandb_project", type=str, default="baht-benchmark")
     parser.add_argument("--list-envs", action="store_true", help="List available environments")
     parser.add_argument("--shapley_root", type=str, default=None, help="Path to shapley-aht repo")
+    parser.add_argument("--population_path", type=str, default=None,
+                        help="Path to pre-trained teammate population (with manifest.json)")
+    parser.add_argument("--log_dir", type=str, default=None,
+                        help="Directory for run logs (default: auto-created)")
 
     args = parser.parse_args()
 
@@ -216,6 +246,22 @@ def main():
     else:
         methods = [args.method]
 
+    # Auto-detect population path
+    population_path = args.population_path
+    if not population_path:
+        for env_config in envs:
+            candidate = shapley_root / "populations" / env_config.name
+            if (candidate / "manifest.json").exists():
+                population_path = str(candidate)
+                print(f"Auto-detected population: {population_path}")
+                break
+
+    # Log directory
+    log_dir = args.log_dir
+    if not log_dir:
+        import time
+        log_dir = f"logs/{time.strftime('%Y%m%d-%H%M%S')}"
+
     # Build run list
     runs = []
     for env_config in envs:
@@ -224,7 +270,8 @@ def main():
                 runs.append((env_config, method, seed))
 
     print(f"\nTotal runs: {len(runs)} ({len(envs)} envs x {len(methods)} methods x {args.seeds} seeds)")
-    print(f"Byzantine type: {args.byz_type}")
+    print(f"Byzantine type: {args.byz_type}, budget: {args.byz_budget or 'env default'}")
+    print(f"Logs: {log_dir}")
     print()
 
     # Launch runs with GPU round-robin
@@ -234,8 +281,10 @@ def main():
         t_max = args.t_max or env_config.default_t_max
         proc, name = run_experiment(
             shapley_root, env_config, method, seed,
-            args.byz_type, gpu_id, t_max,
+            args.byz_type, gpu_id, t_max, args.byz_budget,
             args.use_wandb, args.wandb_project,
+            population_path=population_path,
+            log_dir=log_dir,
         )
         processes.append((proc, name))
 
@@ -254,7 +303,7 @@ def main():
     print(f"\nDone: {n_ok}/{len(results)} succeeded, {n_fail} failed")
 
     if n_fail > 0:
-        print("\nFailed runs:")
+        print(f"\nFailed run logs in: {log_dir}/")
         for name, status in results.items():
             if status != "OK":
                 print(f"  {name}: {status}")
